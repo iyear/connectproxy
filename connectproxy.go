@@ -204,7 +204,6 @@ func (cd *connectDialer) DialContext(ctx context.Context, network, addr string) 
 	if nil != err {
 		return nil, err
 	}
-	defer nc.Close()
 
 	/* Upgrade to TLS if necessary */
 	if "https" == cd.u.Scheme {
@@ -220,11 +219,13 @@ func (cd *connectDialer) DialContext(ctx context.Context, network, addr string) 
 	// HACK. http.ReadRequest also does this.
 	reqURL, err := url.Parse("http://" + addr)
 	if err != nil {
+		nc.Close()
 		return nil, err
 	}
 	reqURL.Scheme = ""
 	req, err := http.NewRequest(http.MethodConnect, reqURL.String(), nil)
 	if err != nil {
+		nc.Close()
 		return nil, err
 	}
 	req.Close = false
@@ -241,6 +242,7 @@ func (cd *connectDialer) DialContext(ctx context.Context, network, addr string) 
 	/* Send the request */
 	err = req.Write(nc)
 	if err != nil {
+		nc.Close()
 		return nil, err
 	}
 
@@ -260,6 +262,7 @@ func (cd *connectDialer) DialContext(ctx context.Context, network, addr string) 
 		resp.Body.Close()
 	}
 	if err != nil {
+		nc.Close()
 		if errors.Is(err, context.DeadlineExceeded) {
 			return nil, ErrorConnectionTimeout(fmt.Errorf(
 				"connectproxy: no connection to %q after context deadline exceeded",
@@ -271,6 +274,7 @@ func (cd *connectDialer) DialContext(ctx context.Context, network, addr string) 
 
 	/* Make sure we can proceed */
 	if resp.StatusCode != http.StatusOK {
+		nc.Close()
 		return nil, fmt.Errorf(
 			"connectproxy: non-OK status: %v",
 			resp.Status,
