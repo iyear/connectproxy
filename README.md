@@ -1,18 +1,14 @@
 ConnectProxy
 ============
-Small Go library to use CONNECT-speaking proxies standalone or with the
-[proxy](golang.org/x/net/proxy/) library.
+Small Go library to use CONNECT-speaking proxies standalone or with the [proxy](golang.org/x/net/proxy/) library.
 
-[![GoDoc](https://godoc.org/github.com/magisterquis/connectproxy?status.svg)](https://godoc.org/github.com/magisterquis/connectproxy)
+[![GoDoc](https://godoc.org/github.com/sters/connectproxy?status.svg)](https://godoc.org/github.com/sters/connectproxy)
 
 Please see the godoc for more details.
 
-This library is written to make connecting through proxies easier.  It
-unashamedly steals from
-https://gist.github.com/jim3ma/3750675f141669ac4702bc9deaf31c6b, but adds a
-nice and simple interface.
+This library is written to make connecting through proxies easier.
+It unashamedly steals from https://gist.github.com/jim3ma/3750675f141669ac4702bc9deaf31c6b, but adds a nice and simple interface.
 
-For legal use only.
 
 Domain Fronting
 ---------------
