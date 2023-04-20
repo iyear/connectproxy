@@ -1,4 +1,4 @@
-// Package connectproxy implements a proxy.Dialer which uses HTTP(s) CONNECT
+// Package connectproxy implements a proxy.ContextDialer which uses HTTP(s) CONNECT
 // requests.
 //
 // It is heavily based on
@@ -8,64 +8,66 @@
 // Two URL schemes are supported: http and https.  These represent plaintext
 // and TLS-wrapped connections to the proxy server, respectively.
 //
-// The proxy.Dialer returned by the package may either be used directly to make
+// The proxy.ContextDialer returned by the package may either be used directly to make
 // connections via a proxy which understands CONNECT request, or indirectly
 // via dialer.RegisterDialerType.
 //
 // Direct use:
-//     /* Make a proxy.Dialer */
-//     d, err := connectproxy.New("https://proxyserver:4433", proxy.Direct)
-//     if nil != err{
-//             panic(err)
-//     }
 //
-//     /* Connect through it */
-//     c, err := d.Dial("tcp", "internalsite.com")
-//     if nil != err {
-//             log.Printf("Dial: %v", err)
-//             return
-//     }
+//	/* Make a proxy.ContextDialer */
+//	d, err := connectproxy.New("https://proxyserver:4433", proxy.Direct)
+//	if nil != err{
+//	        panic(err)
+//	}
 //
-//     /* Do something with c */
+//	/* Connect through it */
+//	c, err := d.Dial("tcp", "internalsite.com")
+//	if nil != err {
+//	        log.Printf("Dial: %v", err)
+//	        return
+//	}
+//
+//	/* Do something with c */
 //
 // Indirectly, via dialer.RegisterDialerType:
-//     /* Register handlers for HTTP and HTTPS proxies */
-//     proxy.RegisterDialerType("http", connectproxy.New)
-//     proxy.RegisterDialerType("https", connectproxy.New)
 //
-//     /* Make a Dialer for a proxy */
-//     u, err := url.Parse("https://proxyserver.com:4433")
-//     if nil != err {
-//             log.Fatalf("Parse: %v", err)
-//     }
-//     d, err := proxy.FromURL(u, proxy.Direct)
-//     if nil != err {
-//             log.Fatalf("Proxy: %v", err)
-//     }
+//	/* Register handlers for HTTP and HTTPS proxies */
+//	proxy.RegisterDialerType("http", connectproxy.New)
+//	proxy.RegisterDialerType("https", connectproxy.New)
 //
-//     /* Connect through it */
-//     c, err := d.Dial("tcp", "internalsite.com")
-//     if nil != err {
-//             log.Fatalf("Dial: %v", err)
-//     }
+//	/* Make a Dialer for a proxy */
+//	u, err := url.Parse("https://proxyserver.com:4433")
+//	if nil != err {
+//	        log.Fatalf("Parse: %v", err)
+//	}
+//	d, err := proxy.FromURL(u, proxy.Direct)
+//	if nil != err {
+//	        log.Fatalf("Proxy: %v", err)
+//	}
 //
-//     /* Do something with c */
+//	/* Connect through it */
+//	c, err := d.Dial("tcp", "internalsite.com")
+//	if nil != err {
+//	        log.Fatalf("Dial: %v", err)
+//	}
+//
+//	/* Do something with c */
 //
 // It's also possible to make the TLS handshake with an HTTPS proxy server use
 // a different name for SNI than the Host: header uses in the CONNECT request:
-//     d, err := NewWithConfig(
-//             "https://sneakyvhost.com:443",
-//             proxy.Direct,
-//             &connectproxy.Config{
-//                     ServerName: "normalhoster.com",
-//             },
-//     )
-//     if nil != err {
-//             panic(err)
-//     }
 //
-//     /* Use d.Dial(...) */
+//	d, err := NewWithConfig(
+//	        "https://sneakyvhost.com:443",
+//	        proxy.Direct,
+//	        &connectproxy.Config{
+//	                ServerName: "normalhoster.com",
+//	        },
+//	)
+//	if nil != err {
+//	        panic(err)
+//	}
 //
+//	/* Use d.Dial(...) */
 package connectproxy
 
 /*
@@ -78,7 +80,9 @@ package connectproxy
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
@@ -87,12 +91,9 @@ import (
 	"time"
 
 	"golang.org/x/net/proxy"
-	"encoding/base64"
 )
 
-func init() {
-
-}
+// TODO: Define errors as value
 
 // ErrorUnsupportedScheme is returned if a scheme other than "http" or
 // "https" is used.
@@ -105,7 +106,7 @@ type ErrorConnectionTimeout error
 // Config allows various parameters to be configured.  It is used with
 // NewWithConfig.  The config passed to NewWithConfig may be changed between
 // requests.  If it is, the changes will affect all current and future
-// invocations of the returned proxy.Dialer's Dial method.
+// invocations of the returned proxy.ContextDialer's Dial method.
 type Config struct {
 	// ServerName is the name to use in the TLS connection to (not through)
 	// the proxy server if different from the host in the URL.
@@ -126,25 +127,11 @@ type Config struct {
 	DialTimeout time.Duration
 }
 
-// RegisterDialerFromURL is a convenience wrapper around
-// proxy.RegisterDialerType, which registers the given URL as a for the schemes
-// "http" and/or "https", as controlled by registerHTTP and registerHTTPS.  If
-// both registerHTTP and registerHTTPS are false, RegisterDialerFromURL is a
-// no-op.
-func RegisterDialerFromURL(registerHTTP, registerHTTPS bool) {
-	if registerHTTP {
-		proxy.RegisterDialerType("http", New)
-	}
-	if registerHTTPS {
-		proxy.RegisterDialerType("https", New)
-	}
-}
-
 // connectDialer makes connections via an HTTP(s) server supporting the
-// CONNECT verb.  It implements the proxy.Dialer interface.
+// CONNECT verb.  It implements the proxy.ContextDialer interface.
 type connectDialer struct {
 	u       *url.URL
-	forward proxy.Dialer
+	forward proxy.ContextDialer
 	config  *Config
 
 	/* Auth from the url.  Avoids a function call */
@@ -153,16 +140,21 @@ type connectDialer struct {
 	password string
 }
 
-// New returns a proxy.Dialer given a URL specification and an underlying
-// proxy.Dialer for it to make network requests.  New may be passed to
+var (
+	_ proxy.Dialer        = (*connectDialer)(nil)
+	_ proxy.ContextDialer = (*connectDialer)(nil)
+)
+
+// New returns a proxy.ContextDialer given a URL specification and an underlying
+// proxy.ContextDialer for it to make network requests.  New may be passed to
 // proxy.RegisterDialerType for the schemes "http" and "https".  The
 // convenience function RegisterDialerFromURL simplifies this.
-func New(u *url.URL, forward proxy.Dialer) (proxy.Dialer, error) {
+func New(u *url.URL, forward proxy.ContextDialer) (proxy.ContextDialer, error) {
 	return NewWithConfig(u, forward, nil)
 }
 
 // NewWithConfig is like New, but allows control over various options.
-func NewWithConfig(u *url.URL, forward proxy.Dialer, config *Config) (proxy.Dialer, error) {
+func NewWithConfig(u *url.URL, forward proxy.ContextDialer, config *Config) (proxy.ContextDialer, error) {
 	/* Make sure we have an allowable scheme */
 	if "http" != u.Scheme && "https" != u.Scheme {
 		return nil, ErrorUnsupportedScheme(errors.New(
@@ -206,22 +198,36 @@ func NewWithConfig(u *url.URL, forward proxy.Dialer, config *Config) (proxy.Dial
 // proxy.RegisterDialerType while maintaining configuration options.
 //
 // This is to enable registration of an http(s) proxy with options, e.g.:
-//     proxy.RegisterDialerType("https", connectproxy.GeneratorWithConfig(
-//             &connectproxy.Config{DialTimeout: 5 * time.Minute},
-//     ))
-func GeneratorWithConfig(config *Config) func(*url.URL, proxy.Dialer) (proxy.Dialer, error) {
-	return func(u *url.URL, forward proxy.Dialer) (proxy.Dialer, error) {
+//
+//	proxy.RegisterDialerType("https", connectproxy.GeneratorWithConfig(
+//	        &connectproxy.Config{DialTimeout: 5 * time.Minute},
+//	))
+func GeneratorWithConfig(config *Config) func(*url.URL, proxy.ContextDialer) (proxy.ContextDialer, error) {
+	return func(u *url.URL, forward proxy.ContextDialer) (proxy.ContextDialer, error) {
 		return NewWithConfig(u, forward, config)
 	}
 }
 
 // Dial connects to the given address via the server.
 func (cd *connectDialer) Dial(network, addr string) (net.Conn, error) {
+	return cd.DialContext(context.Background(), network, addr)
+}
+
+// DialContext connects to the given address via the server with context
+func (cd *connectDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	if cd.config.DialTimeout != 0 {
+		var cancelF func()
+		ctx, cancelF = context.WithDeadline(ctx, time.Now().Add(cd.config.DialTimeout))
+		defer cancelF()
+	}
+
 	/* Connect to proxy server */
-	nc, err := cd.forward.Dial("tcp", cd.u.Host)
+	nc, err := cd.forward.DialContext(ctx, "tcp", cd.u.Host)
 	if nil != err {
 		return nil, err
 	}
+	defer nc.Close()
+
 	/* Upgrade to TLS if necessary */
 	if "https" == cd.u.Scheme {
 		nc = tls.Client(nc, &tls.Config{
@@ -236,49 +242,39 @@ func (cd *connectDialer) Dial(network, addr string) (net.Conn, error) {
 	// HACK. http.ReadRequest also does this.
 	reqURL, err := url.Parse("http://" + addr)
 	if err != nil {
-		nc.Close()
 		return nil, err
 	}
 	reqURL.Scheme = ""
-	req, err := http.NewRequest("CONNECT", reqURL.String(), nil)
+	req, err := http.NewRequest(http.MethodConnect, reqURL.String(), nil)
 	if err != nil {
-		nc.Close()
 		return nil, err
 	}
 	req.Close = false
 
-	if (len(cd.config.Header) > 0) {
+	if len(cd.config.Header) > 0 {
 		req.Header = cd.config.Header
 	}
 
 	if cd.haveAuth {
-		basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(cd.username + ":" + cd.password))	
+		basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(cd.username+":"+cd.password))
 		req.Header.Add("Proxy-Authorization", basicAuth)
 	}
 
 	/* Send the request */
 	err = req.Write(nc)
 	if err != nil {
-		nc.Close()
 		return nil, err
 	}
 
 	/* Timer to terminate long reads */
-	var (
-		connTOd   = false
-		connected = make(chan string)
-		to        = cd.config.DialTimeout
-	)
-	if 0 != to {
-		go func() {
-			select {
-			case <-time.After(to):
-				connTOd = true
-				nc.Close()
-			case <-connected:
-			}
-		}()
-	}
+	var connected = make(chan string)
+	go func() {
+		select {
+		case <-ctx.Done():
+		case <-connected:
+		}
+	}()
+
 	/* Wait for a response */
 	resp, err := http.ReadResponse(bufio.NewReader(nc), req)
 	close(connected)
@@ -286,23 +282,22 @@ func (cd *connectDialer) Dial(network, addr string) (net.Conn, error) {
 		resp.Body.Close()
 	}
 	if err != nil {
-		nc.Close()
-		if connTOd {
+		if errors.Is(err, context.DeadlineExceeded) {
 			return nil, ErrorConnectionTimeout(fmt.Errorf(
-				"connectproxy: no connection to %q after %v",
+				"connectproxy: no connection to %q after context deadline exceeded",
 				reqURL,
-				to,
 			))
 		}
 		return nil, err
 	}
+
 	/* Make sure we can proceed */
 	if resp.StatusCode != http.StatusOK {
-		nc.Close()
 		return nil, fmt.Errorf(
 			"connectproxy: non-OK status: %v",
 			resp.Status,
 		)
 	}
+
 	return nc, nil
 }
