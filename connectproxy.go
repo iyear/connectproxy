@@ -145,14 +145,6 @@ var (
 	_ proxy.ContextDialer = (*connectDialer)(nil)
 )
 
-// New returns a proxy.ContextDialer given a URL specification and an underlying
-// proxy.ContextDialer for it to make network requests.  New may be passed to
-// proxy.RegisterDialerType for the schemes "http" and "https".  The
-// convenience function RegisterDialerFromURL simplifies this.
-func New(u *url.URL, forward proxy.ContextDialer) (proxy.ContextDialer, error) {
-	return NewWithConfig(u, forward, nil)
-}
-
 // NewWithConfig is like New, but allows control over various options.
 func NewWithConfig(u *url.URL, forward proxy.ContextDialer, config *Config) (proxy.ContextDialer, error) {
 	/* Make sure we have an allowable scheme */
@@ -192,20 +184,6 @@ func NewWithConfig(u *url.URL, forward proxy.ContextDialer, config *Config) (pro
 	}
 
 	return cd, nil
-}
-
-// GeneratorWithConfig is like NewWithConfig, but is suitable for passing to
-// proxy.RegisterDialerType while maintaining configuration options.
-//
-// This is to enable registration of an http(s) proxy with options, e.g.:
-//
-//	proxy.RegisterDialerType("https", connectproxy.GeneratorWithConfig(
-//	        &connectproxy.Config{DialTimeout: 5 * time.Minute},
-//	))
-func GeneratorWithConfig(config *Config) func(*url.URL, proxy.ContextDialer) (proxy.ContextDialer, error) {
-	return func(u *url.URL, forward proxy.ContextDialer) (proxy.ContextDialer, error) {
-		return NewWithConfig(u, forward, config)
-	}
 }
 
 // Dial connects to the given address via the server.
