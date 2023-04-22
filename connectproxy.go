@@ -16,13 +16,13 @@
 //
 //	/* Make a proxy.ContextDialer */
 //	d, err := connectproxy.New("https://proxyserver:4433", proxy.Direct)
-//	if nil != err{
+//	if err != nil{
 //	        panic(err)
 //	}
 //
 //	/* Connect through it */
 //	c, err := d.Dial("tcp", "internalsite.com")
-//	if nil != err {
+//	if err != nil {
 //	        log.Printf("Dial: %v", err)
 //	        return
 //	}
@@ -37,17 +37,17 @@
 //
 //	/* Make a Dialer for a proxy */
 //	u, err := url.Parse("https://proxyserver.com:4433")
-//	if nil != err {
+//	if err != nil {
 //	        log.Fatalf("Parse: %v", err)
 //	}
 //	d, err := proxy.FromURL(u, proxy.Direct)
-//	if nil != err {
+//	if err != nil {
 //	        log.Fatalf("Proxy: %v", err)
 //	}
 //
 //	/* Connect through it */
 //	c, err := d.Dial("tcp", "internalsite.com")
-//	if nil != err {
+//	if err != nil {
 //	        log.Fatalf("Dial: %v", err)
 //	}
 //
@@ -63,7 +63,7 @@
 //	                ServerName: "normalhoster.com",
 //	        },
 //	)
-//	if nil != err {
+//	if err != nil {
 //	        panic(err)
 //	}
 //
@@ -134,7 +134,6 @@ type connectDialer struct {
 	forward proxy.ContextDialer
 	config  *Config
 
-	/* Auth from the url.  Avoids a function call */
 	haveAuth bool
 	username string
 	password string
@@ -148,14 +147,14 @@ var (
 // NewWithConfig is like New, but allows control over various options.
 func NewWithConfig(u *url.URL, forward proxy.ContextDialer, config *Config) (proxy.ContextDialer, error) {
 	/* Make sure we have an allowable scheme */
-	if "http" != u.Scheme && "https" != u.Scheme {
+	if u.Scheme != "http" && u.Scheme != "https" {
 		return nil, ErrorUnsupportedScheme(errors.New(
 			"connectproxy: unsupported scheme " + u.Scheme,
 		))
 	}
 
 	/* Need at least an empty config */
-	if nil == config {
+	if config != nil {
 		config = &Config{}
 	}
 
@@ -167,9 +166,9 @@ func NewWithConfig(u *url.URL, forward proxy.ContextDialer, config *Config) (pro
 	}
 
 	/* Work out the TLS server name */
-	if "" == cd.config.ServerName {
+	if cd.config.ServerName == "" {
 		h, _, err := net.SplitHostPort(u.Host)
-		if nil != err && "missing port in address" == err.Error() {
+		if err != nil && "missing port in address" == err.Error() {
 			h = u.Host
 		}
 		cd.config.ServerName = h
@@ -177,7 +176,7 @@ func NewWithConfig(u *url.URL, forward proxy.ContextDialer, config *Config) (pro
 
 	/* Parse out auth */
 	/* Below taken from https://gist.github.com/jim3ma/3750675f141669ac4702bc9deaf31c6b */
-	if nil != u.User {
+	if u.User != nil {
 		cd.haveAuth = true
 		cd.username = u.User.Username()
 		cd.password, _ = u.User.Password()
@@ -201,7 +200,7 @@ func (cd *connectDialer) DialContext(ctx context.Context, network, addr string) 
 
 	/* Connect to proxy server */
 	nc, err := cd.forward.DialContext(ctx, "tcp", cd.u.Host)
-	if nil != err {
+	if err != nil {
 		return nil, err
 	}
 
@@ -258,7 +257,7 @@ func (cd *connectDialer) DialContext(ctx context.Context, network, addr string) 
 	/* Wait for a response */
 	resp, err := http.ReadResponse(bufio.NewReader(nc), req)
 	close(connected)
-	if nil != resp {
+	if resp != nil {
 		resp.Body.Close()
 	}
 	if err != nil {
