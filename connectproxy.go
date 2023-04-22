@@ -93,15 +93,13 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-// TODO: Define errors as value
+var (
+	// ErrUnsupportedProxyScheme is returned if a scheme other than "http" or "https" is used.
+	ErrUnsupportedProxyScheme error = errors.New("connectproxy: unsupported scheme. it should be http/https")
 
-// ErrorUnsupportedScheme is returned if a scheme other than "http" or
-// "https" is used.
-type ErrorUnsupportedScheme error
-
-// ErrorConnectionTimeout is returned if the connection through the proxy
-// server was not able to be made before the configured timeout expired.
-type ErrorConnectionTimeout error
+	// ErrUnsupportedProxyScheme is returned if a response from proxy is not OK status.
+	ErrNonOKResponse = errors.New("connectproxy: proxy response is not OK")
+)
 
 // Config allows various parameters to be configured.  It is used with
 // NewWithConfig.  The config passed to NewWithConfig may be changed between
@@ -144,17 +142,17 @@ var (
 	_ proxy.ContextDialer = (*connectDialer)(nil)
 )
 
+const errWrapFormat = "connectproxy: %w"
+
 // NewWithConfig is like New, but allows control over various options.
 func NewWithConfig(u *url.URL, forward proxy.ContextDialer, config *Config) (proxy.ContextDialer, error) {
 	/* Make sure we have an allowable scheme */
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return nil, ErrorUnsupportedScheme(errors.New(
-			"connectproxy: unsupported scheme " + u.Scheme,
-		))
+		return nil, ErrUnsupportedProxyScheme
 	}
 
 	/* Need at least an empty config */
-	if config != nil {
+	if config == nil {
 		config = &Config{}
 	}
 
@@ -201,7 +199,7 @@ func (cd *connectDialer) DialContext(ctx context.Context, network, addr string) 
 	/* Connect to proxy server */
 	nc, err := cd.forward.DialContext(ctx, "tcp", cd.u.Host)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf(errWrapFormat, err)
 	}
 
 	/* Upgrade to TLS if necessary */
@@ -219,13 +217,13 @@ func (cd *connectDialer) DialContext(ctx context.Context, network, addr string) 
 	reqURL, err := url.Parse("http://" + addr)
 	if err != nil {
 		nc.Close()
-		return nil, err
+		return nil, fmt.Errorf(errWrapFormat, err)
 	}
 	reqURL.Scheme = ""
 	req, err := http.NewRequest(http.MethodConnect, reqURL.String(), nil)
 	if err != nil {
 		nc.Close()
-		return nil, err
+		return nil, fmt.Errorf(errWrapFormat, err)
 	}
 	req.Close = false
 
@@ -242,7 +240,7 @@ func (cd *connectDialer) DialContext(ctx context.Context, network, addr string) 
 	err = req.Write(nc)
 	if err != nil {
 		nc.Close()
-		return nil, err
+		return nil, fmt.Errorf(errWrapFormat, err)
 	}
 
 	/* Timer to terminate long reads */
@@ -262,22 +260,11 @@ func (cd *connectDialer) DialContext(ctx context.Context, network, addr string) 
 	}
 	if err != nil {
 		nc.Close()
-		if errors.Is(err, context.DeadlineExceeded) {
-			return nil, ErrorConnectionTimeout(fmt.Errorf(
-				"connectproxy: no connection to %q after context deadline exceeded",
-				reqURL,
-			))
-		}
-		return nil, err
+		return nil, fmt.Errorf(errWrapFormat, err)
 	}
-
-	/* Make sure we can proceed */
 	if resp.StatusCode != http.StatusOK {
 		nc.Close()
-		return nil, fmt.Errorf(
-			"connectproxy: non-OK status: %v",
-			resp.Status,
-		)
+		return nil, ErrNonOKResponse
 	}
 
 	return nc, nil
