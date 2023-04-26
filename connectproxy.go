@@ -95,9 +95,9 @@ import (
 
 var (
 	// ErrUnsupportedProxyScheme is returned if a scheme other than "http" or "https" is used.
-	ErrUnsupportedProxyScheme error = errors.New("connectproxy: unsupported scheme. it should be http/https")
+	ErrUnsupportedProxyScheme = errors.New("connectproxy: unsupported scheme. it should be http/https")
 
-	// ErrUnsupportedProxyScheme is returned if a response from proxy is not OK status.
+	// ErrNonOKResponse is returned if a response from proxy is not OK status.
 	ErrNonOKResponse = errors.New("connectproxy: proxy response is not OK")
 )
 
