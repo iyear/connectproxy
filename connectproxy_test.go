@@ -8,6 +8,8 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"testing"
+
+	"golang.org/x/net/proxy"
 )
 
 // TODO: write more tests
@@ -52,5 +54,23 @@ func Test_connectDialer_DialContext(t *testing.T) {
 
 	if targetHandles != 2 {
 		t.Errorf("target server want to 2 requests but got %d", targetHandles)
+	}
+}
+
+func TestRegister(t *testing.T) {
+	Register(&Config{})
+
+	urls := []string{
+		"http://localhost:7890",
+		"https://localhost:7890",
+		"socks5://localhost:7890",
+	}
+
+	for _, u := range urls {
+		u, err := url.Parse(u)
+		noError(t, err)
+
+		_, err = proxy.FromURL(u, proxy.Direct)
+		noError(t, err)
 	}
 }

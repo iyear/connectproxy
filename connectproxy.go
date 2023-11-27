@@ -269,3 +269,21 @@ func (cd *connectDialer) DialContext(ctx context.Context, network, addr string) 
 
 	return nc, nil
 }
+
+func Register(conf *Config) {
+	register := func(u *url.URL, forward proxy.Dialer) (proxy.Dialer, error) {
+		fw, ok := forward.(proxy.ContextDialer)
+		if !ok {
+			return nil, fmt.Errorf("forward dialer should be ContextDialer: %T", forward)
+		}
+
+		dialer, err := NewWithConfig(u, fw, conf)
+		if err != nil {
+			return nil, fmt.Errorf("new dialer: %w", err)
+		}
+		return dialer.(proxy.Dialer), nil
+	}
+
+	proxy.RegisterDialerType("http", register)
+	proxy.RegisterDialerType("https", register)
+}
